@@ -1,0 +1,76 @@
+{
+  "name": "Get with Receipt — web research under $0.10",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "manual-trigger",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "operation": "getOutcome",
+        "task": "Research Receipt Protocol universal agent commerce",
+        "inputType": "json",
+        "inputJson": "{\"query\":\"Receipt Protocol universal agent commerce\"}",
+        "maxSpend": 0.1,
+        "validateAs": "delivered",
+        "projectId": "n8n-community-template",
+        "idempotencyKey": "={{$execution.id}}:web-research",
+        "dryRun": false
+      },
+      "id": "get-outcome",
+      "name": "Get web research",
+      "type": "n8n-nodes-receipt.getWithReceipt",
+      "typeVersion": 1,
+      "position": [240, 0]
+    },
+    {
+      "parameters": {
+        "url": "={{$json.signedReceiptUrl}}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file",
+              "outputPropertyName": "data"
+            }
+          }
+        }
+      },
+      "id": "download-receipt",
+      "name": "Download signed Receipt",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [480, 0]
+    },
+    {
+      "parameters": {
+        "operation": "verifyReceipt",
+        "receiptSource": "binary",
+        "receiptBinaryPropertyName": "data",
+        "issuerMetadataJson": ""
+      },
+      "id": "verify-receipt",
+      "name": "Verify Receipt locally",
+      "type": "n8n-nodes-receipt.getWithReceipt",
+      "typeVersion": 1,
+      "position": [720, 0]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [[{ "node": "Get web research", "type": "main", "index": 0 }]]
+    },
+    "Get web research": {
+      "main": [[{ "node": "Download signed Receipt", "type": "main", "index": 0 }]]
+    },
+    "Download signed Receipt": {
+      "main": [[{ "node": "Verify Receipt locally", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": {},
+  "versionId": "60c91de1-5e19-4da8-8470-f5c9752ef22c"
+}
