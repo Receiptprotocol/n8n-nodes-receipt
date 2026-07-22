@@ -19,6 +19,11 @@ const scratch = mkdtempSync(join(tmpdir(), "n8n-nodes-receipt-release-integrity-
 const npmCache = join(scratch, "npm-cache");
 const packageJson = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8"));
 
+type PackEntry = {
+  filename: string;
+  files: Array<{ path: string }>;
+};
+
 const requiredBuildFiles = [
   "dist/credentials/ReceiptApi.credentials.js",
   "dist/nodes/GetWithReceipt/GetWithReceipt.node.js",
@@ -44,6 +49,33 @@ function run(command: string, args: string[], cwd = root): string {
   });
 }
 
+function parsePackEntry(raw: string, packageName: string): PackEntry {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    parsed = undefined;
+  }
+
+  const candidate = Array.isArray(parsed)
+    ? parsed[0]
+    : parsed && typeof parsed === "object"
+      ? ((parsed as Record<string, unknown>)[packageName] ??
+        Object.values(parsed as Record<string, unknown>)[0])
+      : undefined;
+
+  if (
+    !candidate ||
+    typeof candidate !== "object" ||
+    typeof (candidate as PackEntry).filename !== "string" ||
+    !Array.isArray((candidate as PackEntry).files)
+  ) {
+    throw new Error(`Unexpected npm pack --json response for ${packageName}`);
+  }
+
+  return candidate as PackEntry;
+}
+
 function expectBuildOutputs(): void {
   for (const path of requiredBuildFiles) {
     expect(existsSync(resolve(root, path)), path).toBe(true);
@@ -55,6 +87,44 @@ afterAll(() => {
 });
 
 describe("release artifact integrity", () => {
+  test("parses npm 11 array output", () => {
+    const entry = parsePackEntry(
+      JSON.stringify([
+        {
+          filename: "n8n-nodes-receipt-0.1.0.tgz",
+          files: [{ path: "package.json" }],
+        },
+      ]),
+      packageJson.name,
+    );
+
+    expect(entry.filename).toBe("n8n-nodes-receipt-0.1.0.tgz");
+    expect(entry.files).toEqual([{ path: "package.json" }]);
+  });
+
+  test("parses npm 12 package-keyed output", () => {
+    const entry = parsePackEntry(
+      JSON.stringify({
+        "n8n-nodes-receipt": {
+          filename: "n8n-nodes-receipt-0.1.0.tgz",
+          files: [{ path: "package.json" }],
+        },
+      }),
+      packageJson.name,
+    );
+
+    expect(entry.filename).toBe("n8n-nodes-receipt-0.1.0.tgz");
+    expect(entry.files).toEqual([{ path: "package.json" }]);
+  });
+
+  test("rejects malformed or empty output with a clear error", () => {
+    for (const raw of ["", "[]", "{}", '{"n8n-nodes-receipt":{"files":[]}}']) {
+      expect(() => parsePackEntry(raw, packageJson.name)).toThrow(
+        "Unexpected npm pack --json response for n8n-nodes-receipt",
+      );
+    }
+  });
+
   test(
     "emits, packs, and installs every declared n8n entrypoint",
     () => {
@@ -70,8 +140,11 @@ describe("release artifact integrity", () => {
       run("npm", ["run", "build"]);
       expectBuildOutputs();
 
-      const dryRun = JSON.parse(run("npm", ["pack", "--dry-run", "--json"]));
-      const packedFiles = new Set<string>(dryRun[0].files.map(({ path }: { path: string }) => path));
+      const dryRunEntry = parsePackEntry(
+        run("npm", ["pack", "--dry-run", "--json"]),
+        packageJson.name,
+      );
+      const packedFiles = new Set<string>(dryRunEntry.files.map(({ path }) => path));
 
       for (const path of requiredPackedFiles) {
         expect(packedFiles.has(path), path).toBe(true);
@@ -88,10 +161,11 @@ describe("release artifact integrity", () => {
       mkdirSync(installDirectory, { recursive: true });
       writeFileSync(join(installDirectory, "package.json"), '{"private":true}\n');
 
-      const packed = JSON.parse(
+      const packedEntry = parsePackEntry(
         run("npm", ["pack", "--json", "--pack-destination", packDirectory]),
+        packageJson.name,
       );
-      const tarball = join(packDirectory, packed[0].filename);
+      const tarball = join(packDirectory, packedEntry.filename);
       run("npm", ["install", "--no-audit", "--no-fund", "--legacy-peer-deps", tarball], installDirectory);
 
       const resolveFromInstall = createRequire(join(installDirectory, "package.json")).resolve;
