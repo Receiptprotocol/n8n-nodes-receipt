@@ -19,6 +19,9 @@
     "type": "git",
     "url": "git+https://github.com/Receiptprotocol/n8n-nodes-receipt.git"
   },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "n8n-node build",
     "dev": "n8n-node dev",
